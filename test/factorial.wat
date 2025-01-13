@@ -1,0 +1,46 @@
+(module
+  ;; name: factorial
+  (func $factorial (param $n i32) (result i32)
+    (local $o i32)
+    (i32.const 1)
+    (local.set $o)
+    (loop $factorial_loop
+      (local.get $n)
+      (i32.const 0)
+      (add)
+      (if
+        (then
+          (local.get $o)
+          (local.get $n)
+          (mul)
+          (local.set $o)
+          (local.get $n)
+          (i32.const 1)
+          (sub)
+          (local.set $n)
+        )
+      )
+    )
+    (local.get $o)
+    (i32.const 1)
+    (local.set $o)
+    (loop $factorial_loop
+      (local.get $n)
+      (i32.const 0)
+      (add)
+      (if
+        (then
+          (local.get $o)
+          (local.get $n)
+          (mul)
+          (local.set $o)
+          (local.get $n)
+          (i32.const 1)
+          (sub)
+          (local.set $n)
+        )
+      )
+    )
+    (local.get $o)
+  )
+)

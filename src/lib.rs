@@ -354,10 +354,10 @@ fn emit_instruction<W: Write>(
 ) -> io::Result<()> {
     let indent_str = " ".repeat(indent);
     match instruction {
-        Instruction::GetLocal(name) => writeln!(writer, "{}(get_local ${})", indent_str, name)?,
-        Instruction::SetLocal(name) => writeln!(writer, "{}(set_local ${})", indent_str, name)?,
-        Instruction::GetGlobal(name) => writeln!(writer, "{}(get_global ${})", indent_str, name)?,
-        Instruction::SetGlobal(name) => writeln!(writer, "{}(set_global ${})", indent_str, name)?,
+        Instruction::GetLocal(name) => writeln!(writer, "{}(local.get ${})", indent_str, name)?,
+        Instruction::SetLocal(name) => writeln!(writer, "{}(local.set ${})", indent_str, name)?,
+        Instruction::GetGlobal(name) => writeln!(writer, "{}(global.get ${})", indent_str, name)?,
+        Instruction::SetGlobal(name) => writeln!(writer, "{}(global.set ${})", indent_str, name)?,
         Instruction::Const(c) => match c {
             Const::I32(v) => writeln!(writer, "{}(i32.const {})", indent_str, v)?,
             Const::I64(v) => writeln!(writer, "{}(i64.const {})", indent_str, v)?,
@@ -425,6 +425,14 @@ impl ValueType {
     }
 }
 
+pub fn write_wat_to_file<T: WatEmitter>(
+    emitter: &T,
+    path: impl AsRef<std::path::Path>,
+) -> io::Result<()> {
+    let mut file = std::fs::File::create(path)?;
+    emitter.emit_wat(&mut file)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -465,7 +473,7 @@ mod tests {
                                 // result *= n
                                 Instruction::GetLocal("o".to_string()),
                                 Instruction::GetLocal("n".to_string()),
-                                Instruction::BinOp(BinaryOp::Mul),
+                                Instruction::BinOp(BinaryOp::Mul), // @fix: bin ops must accept exprs
                                 Instruction::SetLocal("o".to_string()),
                                 // n -= 1
                                 Instruction::GetLocal("n".to_string()),
@@ -489,6 +497,6 @@ mod tests {
         WatEmitter::emit_wat(&module, &mut output).unwrap();
         dbg!(String::from_utf8(output).unwrap());
 
-        // write_wat_to_file(&module, "factorial.wat")
+        write_wat_to_file(&module, "test/factorial.wat").unwrap();
     }
 }
