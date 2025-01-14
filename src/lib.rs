@@ -95,7 +95,13 @@ pub enum Instruction {
     SetGlobal(String),
     Const(Const),
     Call(String),
-    BinOp(BinaryOp),
+    // BinOp(BinaryOp),
+    BinOp {
+        op: BinaryOp,
+        ty: ValueType,
+        lhs: Box<Instruction>,
+        rhs: Box<Instruction>,
+    },
     If {
         condition: Box<Vec<Instruction>>,
         then_branch: Box<Vec<Instruction>>,
@@ -365,18 +371,25 @@ fn emit_instruction<W: Write>(
             Const::F64(v) => writeln!(writer, "{}(f64.const {})", indent_str, v)?,
         },
         Instruction::Call(name) => writeln!(writer, "{}(call ${})", indent_str, name)?,
-        Instruction::BinOp(op) => match op {
-            BinaryOp::Add => writeln!(writer, "{}(add)", indent_str)?,
-            BinaryOp::Sub => writeln!(writer, "{}(sub)", indent_str)?,
-            BinaryOp::Mul => writeln!(writer, "{}(mul)", indent_str)?,
-            BinaryOp::Div => writeln!(writer, "{}(div)", indent_str)?,
-            BinaryOp::And => writeln!(writer, "{}(and)", indent_str)?,
-            BinaryOp::Or => writeln!(writer, "{}(or)", indent_str)?,
-            BinaryOp::Xor => writeln!(writer, "{}(xor)", indent_str)?,
-            BinaryOp::Shl => writeln!(writer, "{}(shl)", indent_str)?,
-            BinaryOp::ShrS => writeln!(writer, "{}(shr_s)", indent_str)?,
-            BinaryOp::ShrU => writeln!(writer, "{}(shr_u)", indent_str)?,
-        },
+        Instruction::BinOp { op, ty, lhs, rhs } => {
+            let op_str = match op {
+                BinaryOp::Add => "add",
+                BinaryOp::Sub => "sub",
+                BinaryOp::Mul => "mul",
+                BinaryOp::Div => "div",
+                BinaryOp::And => "and",
+                BinaryOp::Or => "or",
+                BinaryOp::Xor => "xor",
+                BinaryOp::Shl => "shl",
+                BinaryOp::ShrS => "shr_s",
+                BinaryOp::ShrU => "shr_u",
+            };
+
+            writeln!(writer, "{}({}.{}", indent_str, ty.to_string(), op_str)?;
+            emit_instructions(writer, &[*lhs.clone()], indent + 2)?;
+            emit_instructions(writer, &[*rhs.clone()], indent + 2)?;
+            writeln!(writer, "{})", indent_str)?;
+        }
         Instruction::If {
             condition,
             then_branch,
@@ -464,28 +477,36 @@ mod tests {
                     label: Some("factorial_loop".to_string()),
                     body: Box::new(vec![
                         // if (n <= 0) break
-                        Instruction::GetLocal("n".to_string()),
-                        Instruction::Const(Const::I32(0)),
-                        Instruction::BinOp(BinaryOp::Add),
+                        Instruction::BinOp {
+                            op: BinaryOp::Add,
+                            ty: ValueType::I32,
+                            lhs: Box::new(Instruction::GetLocal("n".to_string())),
+                            rhs: Box::new(Instruction::Const(Const::I32(0))),
+                        },
                         Instruction::If {
                             condition: Box::new(vec![]),
                             then_branch: Box::new(vec![
                                 // result *= n
-                                Instruction::GetLocal("o".to_string()),
-                                Instruction::GetLocal("n".to_string()),
-                                Instruction::BinOp(BinaryOp::Mul), // @fix: bin ops must accept exprs
+                                Instruction::BinOp {
+                                    op: BinaryOp::Mul,
+                                    ty: ValueType::I32,
+                                    lhs: Box::new(Instruction::GetLocal("o".to_string())),
+                                    rhs: Box::new(Instruction::GetLocal("n".to_string())),
+                                },
                                 Instruction::SetLocal("o".to_string()),
                                 // n -= 1
-                                Instruction::GetLocal("n".to_string()),
-                                Instruction::Const(Const::I32(1)),
-                                Instruction::BinOp(BinaryOp::Sub),
+                                Instruction::BinOp {
+                                    op: BinaryOp::Sub,
+                                    ty: ValueType::I32,
+                                    lhs: Box::new(Instruction::GetLocal("n".to_string())),
+                                    rhs: Box::new(Instruction::Const(Const::I32(1))),
+                                },
                                 Instruction::SetLocal("n".to_string()),
                             ]),
                             else_branch: None,
                         },
                     ]),
                 },
-                // return result
                 Instruction::GetLocal("o".to_string()),
             ]);
 

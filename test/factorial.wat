@@ -5,18 +5,21 @@
     (i32.const 1)
     (local.set $o)
     (loop $factorial_loop
-      (local.get $n)
-      (i32.const 0)
-      (add)
+      (i32.add
+        (local.get $n)
+        (i32.const 0)
+      )
       (if
         (then
-          (local.get $o)
-          (local.get $n)
-          (mul)
+          (i32.mul
+            (local.get $o)
+            (local.get $n)
+          )
           (local.set $o)
-          (local.get $n)
-          (i32.const 1)
-          (sub)
+          (i32.sub
+            (local.get $n)
+            (i32.const 1)
+          )
           (local.set $n)
         )
       )
@@ -25,18 +28,21 @@
     (i32.const 1)
     (local.set $o)
     (loop $factorial_loop
-      (local.get $n)
-      (i32.const 0)
-      (add)
+      (i32.add
+        (local.get $n)
+        (i32.const 0)
+      )
       (if
         (then
-          (local.get $o)
-          (local.get $n)
-          (mul)
+          (i32.mul
+            (local.get $o)
+            (local.get $n)
+          )
           (local.set $o)
-          (local.get $n)
-          (i32.const 1)
-          (sub)
+          (i32.sub
+            (local.get $n)
+            (i32.const 1)
+          )
           (local.set $n)
         )
       )
