@@ -28,7 +28,7 @@ pub struct Function<T> {
 #[derive(Clone)]
 pub struct Parameter {
     name: String,
-    typ: ValueType,
+    ty: ValueType,
 }
 
 #[derive(Clone)]
@@ -180,6 +180,21 @@ impl<T> Module<T> {
         self.globals.push(global);
         self
     }
+
+    pub fn add_import(mut self, import: Import) -> Self {
+        self.imports.push(import);
+        self
+    }
+
+    pub fn add_export(mut self, export: Export) -> Self {
+        self.exports.push(export);
+        self
+    }
+
+    pub fn set_memory(mut self, memory: Memory) -> Self {
+        self.memory = Some(memory);
+        self
+    }
 }
 
 impl<T> Function<T> {
@@ -202,7 +217,7 @@ impl<T> Function<T> {
     pub fn add_param(mut self, name: impl Into<String>, typ: ValueType) -> Self {
         self.params.push(Parameter {
             name: name.into(),
-            typ,
+            ty: typ,
         });
 
         self
@@ -249,7 +264,7 @@ impl<T: WatEmitter> WatEmitter for Module<T> {
                 ImportKind::Function(params, results) => {
                     write!(writer, "(func")?;
                     for param in params {
-                        write!(writer, " (param ${} {})", param.name, param.typ.to_string())?;
+                        write!(writer, " (param ${} {})", param.name, param.ty.to_string())?;
                     }
 
                     for result in results {
@@ -292,6 +307,16 @@ impl<T: WatEmitter> WatEmitter for Module<T> {
             writeln!(writer, ")")?;
         }
 
+        // emit exports
+        for export in &self.exports {
+            write!(writer, "  (export \"{}\" ", export.name)?;
+            match &export.kind {
+                ExportKind::Function(name) => writeln!(writer, "(func ${}))", name)?,
+                ExportKind::Memory(name) => writeln!(writer, "(memory ${}))", name)?,
+                ExportKind::Global(name) => writeln!(writer, "(global ${}))", name)?,
+            }
+        }
+
         // emit globals
         for global in &self.globals {
             write!(writer, "  (global ${} ", global.name)?;
@@ -316,7 +341,7 @@ impl<T: WatEmitter> WatEmitter for Module<T> {
 
             // emit named parameters
             for param in &function.params {
-                write!(writer, " (param ${} {})", param.name, param.typ.to_string())?;
+                write!(writer, " (param ${} {})", param.name, param.ty.to_string())?;
             }
 
             // emit results
@@ -337,19 +362,6 @@ impl<T: WatEmitter> WatEmitter for Module<T> {
             }
 
             // function body with S-expression folding
-            // emit_instructions(writer, &function.instructions, 4)?;
-
-            // emit exports
-            for export in &self.exports {
-                write!(writer, "  (export \"{}\" ", export.name)?;
-                match &export.kind {
-                    ExportKind::Function(name) => writeln!(writer, "(func ${}))", name)?,
-                    ExportKind::Memory(name) => writeln!(writer, "(memory ${}))", name)?,
-                    ExportKind::Global(name) => writeln!(writer, "(global ${}))", name)?,
-                }
-            }
-
-            // emit fn instructions
             emit_instructions(writer, &function.instructions, 4)?;
 
             writeln!(writer, "  )")?;
@@ -505,15 +517,15 @@ pub fn write_wat_to_file<T: WatEmitter>(
 mod tests {
     use super::*;
 
+    struct ModuleContext;
+    impl WatEmitter for ModuleContext {
+        fn emit_wat<W: Write>(&self, _writer: &mut W) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
     #[test]
     fn test_factorial() -> io::Result<()> {
-        struct ModuleContext;
-        impl WatEmitter for ModuleContext {
-            fn emit_wat<W: Write>(&self, _writer: &mut W) -> io::Result<()> {
-                Ok(())
-            }
-        }
-
         let factorial: Function<_> = Function::<ModuleContext>::new()
             .with_name("factorial")
             .add_param("n", ValueType::I32)
@@ -589,6 +601,54 @@ mod tests {
         assert!(wat_string.contains("(loop $factorial_loop"));
 
         write_wat_to_file(&module, "test/factorial.wat").unwrap();
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_module() -> io::Result<()> {
+        let add_func = Function::new()
+            .with_name("add")
+            .add_param("a".to_string(), ValueType::I32)
+            .add_param("b".to_string(), ValueType::I32)
+            .add_result(ValueType::I32)
+            .add_instructions(vec![Instruction::BinOp {
+                op: BinaryOp::Add,
+                ty: ValueType::I32,
+                lhs: Box::new(Instruction::GetLocal("a".into())),
+                rhs: Box::new(Instruction::GetLocal("b".into())),
+            }]);
+
+        // create an import for JavaScript console.log (no shared memory)
+        let console_log_import = Import {
+            module: "console".to_string(),
+            name: "log".to_string(),
+            kind: ImportKind::Function(
+                vec![Parameter {
+                    name: "log".into(),
+                    ty: ValueType::I32,
+                }],
+                vec![],
+            ),
+        };
+
+        let add_export = Export {
+            name: "add".to_string(),
+            kind: ExportKind::Function("add".to_string()),
+        };
+
+        let module: Module<ModuleContext> = Module::new()
+            .with_name("add")
+            .add_import(console_log_import)
+            .add_function(add_func)
+            .add_export(add_export)
+            .set_memory(Memory {
+                name: None,
+                initial: 1,
+                maximum: Some(2),
+            });
+
+        write_wat_to_file(&module, "test/add.wat")?;
 
         Ok(())
     }
