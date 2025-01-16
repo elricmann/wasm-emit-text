@@ -90,9 +90,15 @@ pub enum ExportKind {
 #[derive(Clone)]
 pub enum Instruction {
     GetLocal(String),
-    SetLocal(String),
+    SetLocal {
+        name: String,
+        value: Box<Instruction>,
+    },
     GetGlobal(String),
-    SetGlobal(String),
+    SetGlobal {
+        name: String,
+        value: Box<Instruction>,
+    },
     Const(Const),
     Call(String),
     // BinOp(BinaryOp),
@@ -107,10 +113,22 @@ pub enum Instruction {
         then_branch: Box<Vec<Instruction>>,
         else_branch: Option<Box<Vec<Instruction>>>,
     },
-    Block(Vec<Instruction>),
     Loop {
         label: Option<String>,
         body: Box<Vec<Instruction>>,
+    },
+    BrIf {
+        label: String,
+        condition: Box<Instruction>,
+    },
+    Block {
+        label: String,
+        instructions: Vec<Instruction>,
+    },
+    Br(String),
+    Eqz {
+        ty: ValueType,
+        value: Box<Instruction>,
     },
 }
 
@@ -319,7 +337,7 @@ impl<T: WatEmitter> WatEmitter for Module<T> {
             }
 
             // function body with S-expression folding
-            emit_instructions(writer, &function.instructions, 4)?;
+            // emit_instructions(writer, &function.instructions, 4)?;
 
             // emit exports
             for export in &self.exports {
@@ -361,16 +379,29 @@ fn emit_instruction<W: Write>(
     let indent_str = " ".repeat(indent);
     match instruction {
         Instruction::GetLocal(name) => writeln!(writer, "{}(local.get ${})", indent_str, name)?,
-        Instruction::SetLocal(name) => writeln!(writer, "{}(local.set ${})", indent_str, name)?,
+
+        Instruction::SetLocal { name, value } => {
+            writeln!(writer, "{}(local.set ${}", indent_str, name)?;
+            emit_instructions(writer, &[*value.clone()], indent + 2)?;
+            writeln!(writer, "{})", indent_str)?;
+        }
+
         Instruction::GetGlobal(name) => writeln!(writer, "{}(global.get ${})", indent_str, name)?,
-        Instruction::SetGlobal(name) => writeln!(writer, "{}(global.set ${})", indent_str, name)?,
+        Instruction::SetGlobal { name, value } => {
+            writeln!(writer, "{}(global.set ${}", indent_str, name)?;
+            emit_instructions(writer, &[*value.clone()], indent + 2)?;
+            writeln!(writer, "{})", indent_str)?;
+        }
+
         Instruction::Const(c) => match c {
             Const::I32(v) => writeln!(writer, "{}(i32.const {})", indent_str, v)?,
             Const::I64(v) => writeln!(writer, "{}(i64.const {})", indent_str, v)?,
             Const::F32(v) => writeln!(writer, "{}(f32.const {})", indent_str, v)?,
             Const::F64(v) => writeln!(writer, "{}(f64.const {})", indent_str, v)?,
         },
+
         Instruction::Call(name) => writeln!(writer, "{}(call ${})", indent_str, name)?,
+
         Instruction::BinOp { op, ty, lhs, rhs } => {
             let op_str = match op {
                 BinaryOp::Add => "add",
@@ -390,6 +421,7 @@ fn emit_instruction<W: Write>(
             emit_instructions(writer, &[*rhs.clone()], indent + 2)?;
             writeln!(writer, "{})", indent_str)?;
         }
+
         Instruction::If {
             condition,
             then_branch,
@@ -409,18 +441,41 @@ fn emit_instruction<W: Write>(
 
             writeln!(writer, "{})", indent_str)?;
         }
-        Instruction::Block(instructions) => {
-            writeln!(writer, "{}(block", indent_str)?;
-            emit_instructions(writer, instructions, indent + 2)?;
-            writeln!(writer, "{})", indent_str)?;
-        }
+
         Instruction::Loop { label, body } => {
             write!(writer, "{}(loop", indent_str)?;
+
             if let Some(label) = label {
                 write!(writer, " ${}", label)?;
             }
+
             writeln!(writer)?;
             emit_instructions(writer, &body, indent + 2)?;
+            writeln!(writer, "{})", indent_str)?;
+        }
+
+        Instruction::BrIf { label, condition } => {
+            writeln!(writer, "{}(br_if ${}", indent_str, label)?;
+            emit_instructions(writer, &[*condition.clone()], indent + 2)?;
+            writeln!(writer, "{})", indent_str)?;
+        }
+
+        Instruction::Block {
+            label,
+            instructions,
+        } => {
+            writeln!(writer, "{}(block ${}", indent_str, label)?;
+            emit_instructions(writer, instructions, indent + 2)?;
+            writeln!(writer, "{})", indent_str)?;
+        }
+
+        Instruction::Br(label) => {
+            writeln!(writer, "{}(br ${})", indent_str, label)?;
+        }
+
+        Instruction::Eqz { ty, value } => {
+            writeln!(writer, "{}({}.eqz", indent_str, ty.to_string())?;
+            emit_instructions(writer, &[*value.clone()], indent + 2)?;
             writeln!(writer, "{})", indent_str)?;
         }
     }
@@ -451,16 +506,15 @@ mod tests {
     use super::*;
 
     #[test]
-    fn it_works() {
-        struct Context;
-
-        impl WatEmitter for Context {
+    fn test_factorial() -> io::Result<()> {
+        struct ModuleContext;
+        impl WatEmitter for ModuleContext {
             fn emit_wat<W: Write>(&self, _writer: &mut W) -> io::Result<()> {
                 Ok(())
             }
         }
 
-        let factorial: Function<_> = Function::<Context>::new()
+        let factorial: Function<_> = Function::<ModuleContext>::new()
             .with_name("factorial")
             .add_param("n", ValueType::I32)
             .add_result(ValueType::I32)
@@ -469,55 +523,73 @@ mod tests {
                 typ: ValueType::I32,
             })
             .add_instructions(vec![
-                // init result with 1
-                Instruction::Const(Const::I32(1)),
-                Instruction::SetLocal("o".to_string()),
-                // loop while n > 0
-                Instruction::Loop {
-                    label: Some("factorial_loop".to_string()),
-                    body: Box::new(vec![
-                        // if (n <= 0) break
-                        Instruction::BinOp {
-                            op: BinaryOp::Add,
-                            ty: ValueType::I32,
-                            lhs: Box::new(Instruction::GetLocal("n".to_string())),
-                            rhs: Box::new(Instruction::Const(Const::I32(0))),
-                        },
-                        Instruction::If {
-                            condition: Box::new(vec![]),
-                            then_branch: Box::new(vec![
-                                // result *= n
-                                Instruction::BinOp {
-                                    op: BinaryOp::Mul,
-                                    ty: ValueType::I32,
-                                    lhs: Box::new(Instruction::GetLocal("o".to_string())),
-                                    rhs: Box::new(Instruction::GetLocal("n".to_string())),
-                                },
-                                Instruction::SetLocal("o".to_string()),
-                                // n -= 1
-                                Instruction::BinOp {
-                                    op: BinaryOp::Sub,
-                                    ty: ValueType::I32,
-                                    lhs: Box::new(Instruction::GetLocal("n".to_string())),
-                                    rhs: Box::new(Instruction::Const(Const::I32(1))),
-                                },
-                                Instruction::SetLocal("n".to_string()),
-                            ]),
-                            else_branch: None,
-                        },
-                    ]),
+                // local.set $o (i32.const 1)
+                Instruction::SetLocal {
+                    name: "o".to_string(),
+                    value: Box::new(Instruction::Const(Const::I32(1))),
                 },
+                // block $exit
+                Instruction::Block {
+                    label: "exit".to_string(),
+                    instructions: vec![
+                        // loop $factorial_loop
+                        Instruction::Loop {
+                            label: Some("factorial_loop".to_string()),
+                            body: Box::new(vec![
+                                // br_if $exit (i32.eqz (local.get $n))
+                                Instruction::BrIf {
+                                    label: "exit".to_string(),
+                                    condition: Box::new(Instruction::Eqz {
+                                        ty: ValueType::I32,
+                                        value: Box::new(Instruction::GetLocal("n".to_string())),
+                                    }),
+                                },
+                                // local.set $o (i32.mul (local.get $o) (local.get $n))
+                                Instruction::SetLocal {
+                                    name: "o".to_string(),
+                                    value: Box::new(Instruction::BinOp {
+                                        op: BinaryOp::Mul,
+                                        ty: ValueType::I32,
+                                        lhs: Box::new(Instruction::GetLocal("o".to_string())),
+                                        rhs: Box::new(Instruction::GetLocal("n".to_string())),
+                                    }),
+                                },
+                                // local.set $n (i32.sub (local.get $n) (i32.const 1))
+                                Instruction::SetLocal {
+                                    name: "n".to_string(),
+                                    value: Box::new(Instruction::BinOp {
+                                        op: BinaryOp::Sub,
+                                        ty: ValueType::I32,
+                                        lhs: Box::new(Instruction::GetLocal("n".to_string())),
+                                        rhs: Box::new(Instruction::Const(Const::I32(1))),
+                                    }),
+                                },
+                                // br $factorial_loop
+                                Instruction::Br("factorial_loop".to_string()),
+                            ]),
+                        },
+                    ],
+                },
+                // local.get $o
                 Instruction::GetLocal("o".to_string()),
             ]);
 
-        let module: Module<Context> = Module::new().with_name("factorial").add_function(factorial);
-
-        // !! ensure it's not a byte that we are writing to
+        let module: Module<_> = Module::new().with_name("factorial").add_function(factorial);
 
         let mut output = Vec::new();
-        WatEmitter::emit_wat(&module, &mut output).unwrap();
-        dbg!(String::from_utf8(output).unwrap());
+        WatEmitter::emit_wat(&module, &mut output)?;
+        let wat_string = String::from_utf8(output).unwrap();
+
+        // dbg!(wat_string);
+
+        assert!(wat_string.contains("(func $factorial"));
+        assert!(wat_string.contains("(param $n i32)"));
+        assert!(wat_string.contains("(local $o i32)"));
+        assert!(wat_string.contains("(block $exit"));
+        assert!(wat_string.contains("(loop $factorial_loop"));
 
         write_wat_to_file(&module, "test/factorial.wat").unwrap();
+
+        Ok(())
     }
 }
