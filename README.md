@@ -11,6 +11,7 @@ Lightweight library for **programmatically** generating WebAssembly Text Format 
 - [x] Import/export functionality
 - [x] Pretty-printing of generated WAT code
 - [ ] Complete WebAssembly specification
+- [ ] Generate JavaScript glue code
 
 ### Installation
 
@@ -128,7 +129,7 @@ This generates a `factorial.wat` file containing:
     (local.get $o)))
 ```
 
-Refer to the test in [`src/lib.rs`](https://github.com/elricmann/wasm-emit-text/blob/main/src/lib.rs) for more cases.
+Refer to the tests in [`src/lib.rs`](https://github.com/elricmann/wasm-emit-text/blob/main/src/lib.rs) for more cases.
 
 ### License
 
