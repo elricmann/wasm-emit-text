@@ -1,4 +1,6 @@
 [package]
-name = "emit-wat-module"
+name = "wasm-emit-text"
 version = "0.1.0"
 edition = "2021"
+license = "MIT"
+description = "Emit modules in the WebAssembly text format with folded S-expressions"
