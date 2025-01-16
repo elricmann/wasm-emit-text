@@ -1,3 +1,4 @@
+// Copyright (c) 2025 Elric Neumann. All rights reserved. MIT license.
 use std::io::{self, Write};
 use std::marker::PhantomData;
 
